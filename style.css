@@ -37,46 +37,36 @@ body {
   padding: 14px;
 }
 
-.app-header {
+/* HEADER */
+.app-header.stacked-header {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 16px;
-  padding: 8px 4px;
+  justify-content: center;
+  gap: 6px;
+  margin-bottom: 18px;
+  padding: 8px 0 4px;
+  text-align: center;
 }
 
 .logo {
   width: 200px;
+  max-width: 90%;
   height: auto;
   object-fit: contain;
+  display: block;
 }
 
-.app-header h1 {
+.app-title {
   margin: 0;
-  font-size: 28px;
+  font-size: 24px;
   font-weight: 700;
-  color: var(--brand-red);
-}
-.header-text {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-}
-
-.header-text h1 {
-  margin: 0;
-  font-size: 28px;
   line-height: 1.1;
   color: var(--brand-red);
+  text-align: center;
 }
 
-.version-note {
-  margin: 4px 0 0;
-  font-size: 12px;
-  color: var(--muted);
-  font-weight: 700;
-}
-
+/* MAIN LAYOUT */
 .phone-frame {
   display: flex;
   flex-direction: column;
@@ -103,6 +93,7 @@ label {
   margin: 10px 0 6px;
 }
 
+/* INPUTS / SELECTS / BUTTONS */
 input,
 select,
 button {
@@ -110,6 +101,7 @@ button {
   border-radius: 12px;
   font-size: 16px;
   min-height: 48px;
+  box-sizing: border-box;
 }
 
 input,
@@ -117,6 +109,22 @@ select {
   border: 1px solid #d1d5db;
   padding: 10px 12px;
   background: #fff;
+  font-family: Arial, Helvetica, sans-serif;
+  color: var(--text);
+}
+
+input[type="date"] {
+  width: 100%;
+  min-height: 48px;
+  padding: 10px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 12px;
+  background: #fff;
+  font-size: 16px;
+  font-family: Arial, Helvetica, sans-serif;
+  color: var(--text);
+  appearance: none;
+  -webkit-appearance: none;
 }
 
 button {
@@ -152,6 +160,7 @@ button.small {
   border-radius: 10px;
 }
 
+/* GROUPS / ROWS */
 .button-stack {
   display: flex;
   flex-direction: column;
@@ -237,6 +246,7 @@ button.small {
   margin: 16px 0;
 }
 
+/* SESSION / RECORD CARDS */
 .session-card,
 .record-group {
   border: 1px solid var(--line);
@@ -276,6 +286,7 @@ button.small {
   border-top: none;
 }
 
+/* DETAILS */
 details summary {
   font-weight: 700;
   cursor: pointer;
@@ -290,13 +301,15 @@ details summary::-webkit-details-marker {
   margin-top: 12px;
 }
 
-.upload-help {
-  background: #f9fafb;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 12px;
-  margin-top: 12px;
-  font-size: 13px;
+/* MOBILE TWEAKS */
+@media (max-width: 430px) {
+  .logo {
+    width: 180px;
+  }
+
+  .app-title {
+    font-size: 20px;
+  }
 }
 
 @media (max-width: 420px) {
