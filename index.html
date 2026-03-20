@@ -13,11 +13,8 @@
 <body>
   <div class="app-shell">
     <header class="app-header">
-      <img src="logo.png" class="logo" alt="Reinke logo" />
-      <div class="header-text">
-        <h1>Driver Fleet Capture</h1>
-        <p>Phone-first MVP</p>
-      </div>
+    <img src="logo.png" class="logo" alt="Reinke logo" />
+    <h1>Daily Submissions</h1>
     </header>
 
     <main class="phone-frame">
@@ -52,6 +49,9 @@
       <section class="card" id="captureCard">
         <h2>Capture</h2>
 
+        <label for="captureDateInput">Capture Date</label>
+        <input type="date" id="captureDateInput" />
+
         <label for="truckSelect">Truck</label>
         <select id="truckSelect"></select>
 
@@ -65,7 +65,7 @@
         <input type="number" id="odoInput" inputmode="numeric" placeholder="Enter odometer reading" />
 
         <label for="trailerHoursInput">Trailer Hours</label>
-        <input type="number" id="trailerHoursInput" inputmode="numeric" placeholder="Enter trailer hours" />
+        <input type="number" id="trailerHoursInput" inputmode="numeric" placeholder="Enter trailer hours if required" />
 
         <div class="button-stack">
           <button id="saveButton" onclick="saveCapture()">Save Capture</button>
@@ -151,34 +151,6 @@
           </div>
 
           <div id="historySessionsList" class="top-gap"></div>
-        </div>
-      </details>
-
-      <details class="card">
-        <summary>Upload Master Data CSV</summary>
-        <div class="details-body">
-          <label for="uploadType">Upload Type</label>
-          <select id="uploadType">
-            <option value="drivers">Drivers</option>
-            <option value="trucks">Trucks</option>
-            <option value="trailers">Trailers</option>
-            <option value="shifts">Shifts</option>
-          </select>
-
-          <label for="csvFileInput">CSV File</label>
-          <input type="file" id="csvFileInput" accept=".csv" />
-
-          <button onclick="uploadMasterData()">Upload CSV</button>
-
-          <div class="upload-help">
-            <p><strong>Expected CSV headers</strong></p>
-            <p><strong>Drivers:</strong> driver_code, driver_name, pin_hash, is_active, default_shift_code</p>
-            <p><strong>Trucks:</strong> truck_code, registration, is_active</p>
-            <p><strong>Trailers:</strong> trailer_code, registration, is_active</p>
-            <p><strong>Shifts:</strong> shift_code, shift_name, is_active</p>
-          </div>
-
-          <p id="uploadMessage" class="message"></p>
         </div>
       </details>
     </main>

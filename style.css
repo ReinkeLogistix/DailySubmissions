@@ -40,27 +40,41 @@ body {
 .app-header {
   display: flex;
   align-items: center;
-  gap: 14px;
-  margin-bottom: 14px;
-  padding: 10px 4px 4px;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 8px 4px;
 }
 
 .logo {
-  width: 64px;
+  width: 200px;
   height: auto;
-  flex-shrink: 0;
+  object-fit: contain;
+}
+
+.app-header h1 {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--brand-red);
+}
+.header-text {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 
 .header-text h1 {
   margin: 0;
-  font-size: 24px;
+  font-size: 28px;
+  line-height: 1.1;
   color: var(--brand-red);
 }
 
-.header-text p {
+.version-note {
   margin: 4px 0 0;
-  font-size: 13px;
+  font-size: 12px;
   color: var(--muted);
+  font-weight: 700;
 }
 
 .phone-frame {

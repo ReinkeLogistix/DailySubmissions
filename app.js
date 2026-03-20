@@ -18,15 +18,14 @@ function showMessage(text, isError = false) {
   el.style.color = isError ? "#b91c1c" : "#166534";
 }
 
-function showUploadMessage(text, isError = false) {
-  const el = $("uploadMessage");
-  el.textContent = text;
-  el.style.color = isError ? "#b91c1c" : "#166534";
-}
-
 function clearCaptureInputs() {
   $("odoInput").value = "";
   $("trailerHoursInput").value = "";
+}
+
+function setTodayDateDefault() {
+  const today = new Date();
+  $("captureDateInput").value = today.toISOString().slice(0, 10);
 }
 
 function setDriverPanelsLoggedIn(isLoggedIn) {
@@ -53,23 +52,38 @@ function fillSelect(selectId, rows, valueField, textField, includeBlank = false,
   });
 }
 
-function parseBoolean(value) {
-  if (typeof value === "boolean") return value;
-  if (value === null || value === undefined) return false;
-  const v = String(value).trim().toLowerCase();
-  return v === "true" || v === "1" || v === "yes" || v === "y";
-}
-
 function formatDateTime(value) {
   if (!value) return "-";
-  const d = new Date(value);
-  return d.toLocaleString();
+  return new Date(value).toLocaleString("en-ZA", {
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit"
+  });
 }
 
 function formatDate(value) {
   if (!value) return "Active";
-  const d = new Date(value);
-  return d.toLocaleDateString();
+  return new Date(value).toLocaleDateString();
+}
+
+function toCaptureDateTime(dateValue) {
+  const now = new Date();
+  const [year, month, day] = dateValue.split("-").map(Number);
+
+  const localDate = new Date(
+    year,
+    month - 1,
+    day,
+    now.getHours(),
+    now.getMinutes(),
+    now.getSeconds(),
+    0
+  );
+
+  return localDate.toISOString();
 }
 
 function monthRange(monthValue) {
@@ -82,14 +96,17 @@ function monthRange(monthValue) {
 
   return {
     startIso: start.toISOString(),
-    endIso: end.toISOString(),
-    monthLabel: start.toLocaleString(undefined, { month: "long", year: "numeric" })
+    endIso: end.toISOString()
   };
 }
 
 function defaultHistoryMonth() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function trailerRequiresHours(trailerCode) {
+  return trailerCode && trailerCode.toUpperCase().startsWith("F");
 }
 
 async function loginDriver() {
@@ -149,6 +166,11 @@ function switchDriver() {
   $("editRecordSelect").innerHTML = "";
   cancelRecordEdit();
   setDriverPanelsLoggedIn(false);
+  setTodayDateDefault();
+
+  $("odoInput").placeholder = "Enter odometer reading";
+  $("trailerHoursInput").placeholder = "Enter trailer hours if required";
+
   showMessage("Driver cleared on this phone.", false);
 }
 
@@ -196,11 +218,39 @@ async function getActiveSession() {
   return data && data.length ? data[0] : null;
 }
 
-async function getLastTruckCapture(truckId) {
-  const { data } = await supabaseClient
+async function getLastTruckCaptureBefore(truckId, captureDateTime) {
+  const { data, error } = await supabaseClient
     .from("captures")
     .select("*")
     .eq("truck_id", truckId)
+    .lt("capture_datetime", captureDateTime)
+    .order("capture_datetime", { ascending: false })
+    .limit(1);
+
+  if (error || !data || !data.length) return null;
+  return data[0];
+}
+
+async function getLastTrailerCaptureBefore(trailerId, captureDateTime) {
+  if (!trailerId) return null;
+
+  const { data, error } = await supabaseClient
+    .from("captures")
+    .select("id, trailer_id, trailer_hours, capture_datetime")
+    .eq("trailer_id", trailerId)
+    .lt("capture_datetime", captureDateTime)
+    .order("capture_datetime", { ascending: false })
+    .limit(1);
+
+  if (error || !data || !data.length) return null;
+  return data[0];
+}
+
+async function getLastSessionCapture(sessionId) {
+  const { data } = await supabaseClient
+    .from("captures")
+    .select("id, trailer_id, shift_code, trailers(trailer_code)")
+    .eq("session_id", sessionId)
     .order("capture_datetime", { ascending: false })
     .limit(1);
 
@@ -220,27 +270,97 @@ async function getPreviousTruckCaptureBefore(truckId, captureDateTime, currentCa
   return data && data.length ? data[0] : null;
 }
 
-function validateReading(previousCapture, odoReading, kmsStatus) {
-  if (kmsStatus === "Start KMS") {
-    return { valid: true, kms: 0 };
-  }
-
+function validateOdoReading(previousCapture, odoReading, kmsStatus) {
   if (!previousCapture) {
-    return { valid: true, kms: 0 };
+    return { valid: true, kms: kmsStatus === "Start KMS" ? 0 : 0 };
   }
 
   const previousOdo = Number(previousCapture.odo_reading);
   const currentOdo = Number(odoReading);
 
   if (currentOdo < previousOdo) {
-    return { valid: false, message: "ODO may not be less than previous truck reading." };
+    return { valid: false, message: "ODO may not be less than previous truck reading before this date." };
   }
 
   if (currentOdo > previousOdo + 1000) {
-    return { valid: false, message: "ODO increase cannot exceed 1000 km." };
+    return { valid: false, message: "ODO increase cannot exceed 1000 km from previous truck reading." };
+  }
+
+  if (kmsStatus === "Start KMS") {
+    return { valid: true, kms: 0 };
   }
 
   return { valid: true, kms: currentOdo - previousOdo };
+}
+
+function validateTrailerHours(previousTrailerCapture, trailerHours, trailerCode) {
+  if (!trailerRequiresHours(trailerCode)) {
+    return { valid: true };
+  }
+
+  if (trailerHours === null || Number.isNaN(trailerHours)) {
+    return { valid: false, message: "Trailer Hours are required for trailers starting with F." };
+  }
+
+  if (!previousTrailerCapture || previousTrailerCapture.trailer_hours === null) {
+    return { valid: true };
+  }
+
+  const previousHours = Number(previousTrailerCapture.trailer_hours);
+  const currentHours = Number(trailerHours);
+
+  if (currentHours < previousHours) {
+    return { valid: false, message: "Trailer Hours may not be less than previous trailer hours before this date." };
+  }
+
+  if (currentHours > previousHours + 40) {
+    return { valid: false, message: "Trailer Hours increase cannot exceed 40 hours from previous trailer reading." };
+  }
+
+  return { valid: true };
+}
+
+async function updateReadingPlaceholders() {
+  const captureDate = $("captureDateInput").value;
+  const truckCode = $("truckSelect").value;
+  const trailerId = $("trailerSelect").value ? Number($("trailerSelect").value) : null;
+
+  $("odoInput").placeholder = "Enter odometer reading";
+  $("trailerHoursInput").placeholder = "Enter trailer hours if required";
+
+  if (!captureDate) return;
+
+  const captureDateTime = toCaptureDateTime(captureDate);
+
+  if (truckCode) {
+    const { data: truckRow } = await supabaseClient
+      .from("trucks")
+      .select("id")
+      .eq("truck_code", truckCode)
+      .single();
+
+    if (truckRow?.id) {
+      const prevTruck = await getLastTruckCaptureBefore(truckRow.id, captureDateTime);
+      if (prevTruck) {
+        $("odoInput").placeholder = `Enter odometer reading (prev reading - ${prevTruck.odo_reading})`;
+      } else {
+        $("odoInput").placeholder = "Enter odometer reading (prev reading - none)";
+      }
+    }
+  }
+
+  if (trailerId) {
+    const selectedTrailerOption = $("trailerSelect").selectedOptions[0];
+    const trailerCode = selectedTrailerOption ? selectedTrailerOption.textContent : "";
+
+    const prevTrailer = await getLastTrailerCaptureBefore(trailerId, captureDateTime);
+
+    if (prevTrailer && prevTrailer.trailer_hours !== null) {
+      $("trailerHoursInput").placeholder = `Enter trailer hours${trailerRequiresHours(trailerCode) ? "" : " if required"} (prev reading - ${prevTrailer.trailer_hours})`;
+    } else {
+      $("trailerHoursInput").placeholder = `Enter trailer hours${trailerRequiresHours(trailerCode) ? "" : " if required"} (prev reading - none)`;
+    }
+  }
 }
 
 function refreshModeUI() {
@@ -266,6 +386,7 @@ function startCloseTruck() {
   clearCaptureInputs();
   refreshModeUI();
   showMessage("Close-off mode started. Enter final ODO and trailer hours, then confirm End KMS.", false);
+  updateReadingPlaceholders();
 }
 
 function cancelCloseTruck() {
@@ -273,6 +394,7 @@ function cancelCloseTruck() {
   clearCaptureInputs();
   refreshModeUI();
   showMessage("Close-off cancelled.", false);
+  updateReadingPlaceholders();
 }
 
 async function saveCapture() {
@@ -286,20 +408,27 @@ async function saveCapture() {
     return;
   }
 
+  const captureDate = $("captureDateInput").value;
   const truckCode = $("truckSelect").value;
   const trailerId = $("trailerSelect").value ? Number($("trailerSelect").value) : null;
   const shiftCode = $("shiftSelect").value || "N/A";
   const odo = Number($("odoInput").value);
-  const trailerHours = Number($("trailerHoursInput").value);
+  const trailerHoursValue = $("trailerHoursInput").value;
+  const trailerHours = trailerHoursValue === "" ? null : Number(trailerHoursValue);
 
-  if (!truckCode) {
-  showMessage("Please select a truck.", true);
-  return;
+  if (!captureDate) {
+    showMessage("Please select a capture date.", true);
+    return;
   }
 
-if (!odo || !trailerHours) {
-  showMessage("Complete ODO and trailer hours.", true);
-  return;
+  if (!truckCode) {
+    showMessage("Please select a truck.", true);
+    return;
+  }
+
+  if (!odo) {
+    showMessage("Please enter ODO.", true);
+    return;
   }
 
   const { data: truckRow, error: truckError } = await supabaseClient
@@ -313,6 +442,7 @@ if (!odo || !trailerHours) {
     return;
   }
 
+  const captureDateTime = toCaptureDateTime(captureDate);
   const activeSession = await getActiveSession();
 
   if (activeSession && activeSession.truck_id !== truckRow.id) {
@@ -320,9 +450,11 @@ if (!odo || !trailerHours) {
     return;
   }
 
-  let sessionId = null;
   let kmsStatus = "Start KMS";
   let kmsDelta = 0;
+  let sessionId = null;
+
+  const previousTruckCapture = await getLastTruckCaptureBefore(truckRow.id, captureDateTime);
 
   if (!activeSession) {
     const { data: newSession, error: sessionError } = await supabaseClient
@@ -330,7 +462,8 @@ if (!odo || !trailerHours) {
       .insert([{
         driver_id: currentDriver.driver_id,
         truck_id: truckRow.id,
-        status: "Active"
+        status: "Active",
+        start_datetime: captureDateTime
       }])
       .select()
       .single();
@@ -342,25 +475,36 @@ if (!odo || !trailerHours) {
 
     sessionId = newSession.id;
     kmsStatus = "Start KMS";
-    kmsDelta = 0;
   } else {
     sessionId = activeSession.id;
     kmsStatus = "Daily KMS";
+  }
 
-    const lastCapture = await getLastTruckCapture(truckRow.id);
-    const validation = validateReading(lastCapture, odo, kmsStatus);
+  const odoValidation = validateOdoReading(previousTruckCapture, odo, kmsStatus);
+  if (!odoValidation.valid) {
+    showMessage(odoValidation.message, true);
+    return;
+  }
+  kmsDelta = odoValidation.kms;
 
-    if (!validation.valid) {
-      showMessage(validation.message, true);
-      return;
-    }
+  let selectedTrailerCode = "";
+  if (trailerId) {
+    const selectedTrailerOption = $("trailerSelect").selectedOptions[0];
+    selectedTrailerCode = selectedTrailerOption ? selectedTrailerOption.textContent : "";
+  }
 
-    kmsDelta = validation.kms;
+  const previousTrailerCapture = await getLastTrailerCaptureBefore(trailerId, captureDateTime);
+  const trailerValidation = validateTrailerHours(previousTrailerCapture, trailerHours, selectedTrailerCode);
+
+  if (!trailerValidation.valid) {
+    showMessage(trailerValidation.message, true);
+    return;
   }
 
   const { error } = await supabaseClient
     .from("captures")
     .insert([{
+      capture_datetime: captureDateTime,
       driver_id: currentDriver.driver_id,
       truck_id: truckRow.id,
       trailer_id: trailerId,
@@ -392,34 +536,57 @@ async function confirmCloseTruck() {
     return;
   }
 
+  const captureDate = $("captureDateInput").value;
   const trailerId = $("trailerSelect").value ? Number($("trailerSelect").value) : null;
   const shiftCode = $("shiftSelect").value || "N/A";
   const odo = Number($("odoInput").value);
-  const trailerHours = Number($("trailerHoursInput").value);
+  const trailerHoursValue = $("trailerHoursInput").value;
+  const trailerHours = trailerHoursValue === "" ? null : Number(trailerHoursValue);
 
-  if (!odo || !trailerHours) {
-    showMessage("Enter final ODO and trailer hours.", true);
+  if (!captureDate) {
+    showMessage("Please select a capture date.", true);
     return;
   }
 
-  const lastCapture = await getLastTruckCapture(activeSession.truck_id);
-  const validation = validateReading(lastCapture, odo, "End KMS");
+  if (!odo) {
+    showMessage("Enter final ODO.", true);
+    return;
+  }
 
-  if (!validation.valid) {
-    showMessage(validation.message, true);
+  const captureDateTime = toCaptureDateTime(captureDate);
+  const previousTruckCapture = await getLastTruckCaptureBefore(activeSession.truck_id, captureDateTime);
+  const odoValidation = validateOdoReading(previousTruckCapture, odo, "End KMS");
+
+  if (!odoValidation.valid) {
+    showMessage(odoValidation.message, true);
+    return;
+  }
+
+  let selectedTrailerCode = "";
+  if (trailerId) {
+    const selectedTrailerOption = $("trailerSelect").selectedOptions[0];
+    selectedTrailerCode = selectedTrailerOption ? selectedTrailerOption.textContent : "";
+  }
+
+  const previousTrailerCapture = await getLastTrailerCaptureBefore(trailerId, captureDateTime);
+  const trailerValidation = validateTrailerHours(previousTrailerCapture, trailerHours, selectedTrailerCode);
+
+  if (!trailerValidation.valid) {
+    showMessage(trailerValidation.message, true);
     return;
   }
 
   const { error: captureError } = await supabaseClient
     .from("captures")
     .insert([{
+      capture_datetime: captureDateTime,
       driver_id: currentDriver.driver_id,
       truck_id: activeSession.truck_id,
       trailer_id: trailerId,
       shift_code: shiftCode,
       odo_reading: odo,
       trailer_hours: trailerHours,
-      kms_delta: validation.kms,
+      kms_delta: odoValidation.kms,
       kms_status: "End KMS",
       session_id: activeSession.id
     }]);
@@ -433,7 +600,7 @@ async function confirmCloseTruck() {
     .from("truck_sessions")
     .update({
       status: "Closed",
-      end_datetime: new Date().toISOString()
+      end_datetime: captureDateTime
     })
     .eq("id", activeSession.id);
 
@@ -445,7 +612,7 @@ async function confirmCloseTruck() {
   closeMode = false;
   clearCaptureInputs();
   await refreshAll();
-  showMessage(`Truck ${activeSession.trucks.truck_code} closed. End KMS saved. KMS: ${validation.kms}`, false);
+  showMessage(`Truck ${activeSession.trucks.truck_code} closed. End KMS saved. KMS: ${odoValidation.kms}`, false);
 }
 
 function groupRowsBySession(rows) {
@@ -541,6 +708,7 @@ function renderActiveMonthRecords(groups) {
           <div class="record-line">
             ${formatDateTime(row.capture_datetime)} |
             ${row.kms_status} |
+            Shift ${row.shift_code} |
             ODO ${row.odo_reading} |
             Hours ${row.trailer_hours ?? ""} |
             KMS ${row.kms_delta}
@@ -570,7 +738,7 @@ function populateEditRecordDropdown(rows) {
     .forEach(row => {
       const option = document.createElement("option");
       option.value = row.id;
-      option.textContent = `${formatDateTime(row.capture_datetime)} | ${row.trucks?.truck_code || "-"} | ${row.kms_status} | ODO ${row.odo_reading}`;
+      option.textContent = `${formatDateTime(row.capture_datetime)} | ${row.trucks?.truck_code || "-"} | ${row.kms_status} | Shift ${row.shift_code} | ODO ${row.odo_reading}`;
       select.appendChild(option);
     });
 }
@@ -621,10 +789,11 @@ async function saveRecordEdit() {
   const newTrailerId = $("editTrailerSelect").value ? Number($("editTrailerSelect").value) : null;
   const newShiftCode = $("editShiftSelect").value || "N/A";
   const newOdo = Number($("editOdoInput").value);
-  const newTrailerHours = Number($("editTrailerHoursInput").value);
+  const newTrailerHoursValue = $("editTrailerHoursInput").value;
+  const newTrailerHours = newTrailerHoursValue === "" ? null : Number(newTrailerHoursValue);
 
-  if (!newOdo || !newTrailerHours) {
-    showMessage("Enter ODO and trailer hours for the edit.", true);
+  if (!newOdo) {
+    showMessage("Enter ODO for the edit.", true);
     return;
   }
 
@@ -634,10 +803,23 @@ async function saveRecordEdit() {
     selectedEditRecord.id
   );
 
-  const validation = validateReading(previousCapture, newOdo, selectedEditRecord.kms_status);
+  const odoValidation = validateOdoReading(previousCapture, newOdo, selectedEditRecord.kms_status);
+  if (!odoValidation.valid) {
+    showMessage(odoValidation.message, true);
+    return;
+  }
 
-  if (!validation.valid) {
-    showMessage(validation.message, true);
+  let selectedTrailerCode = "";
+  if (newTrailerId) {
+    const selectedOption = $("editTrailerSelect").selectedOptions[0];
+    selectedTrailerCode = selectedOption ? selectedOption.textContent : "";
+  }
+
+  const previousTrailerCapture = await getLastTrailerCaptureBefore(newTrailerId, selectedEditRecord.capture_datetime);
+  const trailerValidation = validateTrailerHours(previousTrailerCapture, newTrailerHours, selectedTrailerCode);
+
+  if (!trailerValidation.valid) {
+    showMessage(trailerValidation.message, true);
     return;
   }
 
@@ -648,7 +830,7 @@ async function saveRecordEdit() {
       shift_code: newShiftCode,
       odo_reading: newOdo,
       trailer_hours: newTrailerHours,
-      kms_delta: validation.kms
+      kms_delta: odoValidation.kms
     })
     .eq("id", selectedEditRecord.id);
 
@@ -772,18 +954,24 @@ async function refreshDriverHeader() {
 
   const activeSession = await getActiveSession();
 
-  $("activeTruckInfo").textContent = activeSession
-    ? activeSession.trucks?.truck_code || "Active"
-    : "No active truck";
+  $("activeTruckInfo").textContent =
+    activeSession ? activeSession.trucks?.truck_code || "Active" : "No active truck";
 
   if (activeSession) {
     $("truckSelect").value = activeSession.trucks.truck_code;
     $("truckSelect").disabled = true;
+
+    const lastSessionCapture = await getLastSessionCapture(activeSession.id);
+    if (lastSessionCapture) {
+      $("trailerSelect").value = lastSessionCapture.trailer_id ? String(lastSessionCapture.trailer_id) : "";
+      $("shiftSelect").value = lastSessionCapture.shift_code || currentDriver.default_shift_code || "N/A";
+    }
   } else {
     $("truckSelect").disabled = false;
   }
 
   refreshModeUI();
+  await updateReadingPlaceholders();
 }
 
 async function refreshAll() {
@@ -791,109 +979,9 @@ async function refreshAll() {
   await loadCurrentMonthSummary();
 }
 
-function parseCSV(text) {
-  const lines = text
-    .replace(/\r/g, "")
-    .split("\n")
-    .map(x => x.trim())
-    .filter(Boolean);
-
-  if (!lines.length) return [];
-
-  const headers = lines[0].split(",").map(h => h.trim());
-
-  return lines.slice(1).map(line => {
-    const values = line.split(",").map(v => v.trim());
-    const row = {};
-    headers.forEach((header, index) => {
-      row[header] = values[index] ?? "";
-    });
-    return row;
-  });
-}
-
-async function uploadMasterData() {
-  const uploadType = $("uploadType").value;
-  const file = $("csvFileInput").files[0];
-
-  if (!file) {
-    showUploadMessage("Choose a CSV file first.", true);
-    return;
-  }
-
-  const text = await file.text();
-  const rawRows = parseCSV(text);
-
-  if (!rawRows.length) {
-    showUploadMessage("No rows found in CSV.", true);
-    return;
-  }
-
-  let tableName = "";
-  let onConflict = "";
-  let uploadRows = [];
-
-  if (uploadType === "drivers") {
-    tableName = "drivers";
-    onConflict = "driver_code";
-    uploadRows = rawRows.map(r => ({
-      driver_code: r.driver_code,
-      driver_name: r.driver_name,
-      pin_hash: r.pin_hash,
-      is_active: parseBoolean(r.is_active),
-      default_shift_code: r.default_shift_code || "N/A"
-    }));
-  }
-
-  if (uploadType === "trucks") {
-    tableName = "trucks";
-    onConflict = "truck_code";
-    uploadRows = rawRows.map(r => ({
-      truck_code: r.truck_code,
-      registration: r.registration || null,
-      is_active: parseBoolean(r.is_active)
-    }));
-  }
-
-  if (uploadType === "trailers") {
-    tableName = "trailers";
-    onConflict = "trailer_code";
-    uploadRows = rawRows.map(r => ({
-      trailer_code: r.trailer_code,
-      registration: r.registration || null,
-      is_active: parseBoolean(r.is_active)
-    }));
-  }
-
-  if (uploadType === "shifts") {
-    tableName = "shifts";
-    onConflict = "shift_code";
-    uploadRows = rawRows.map(r => ({
-      shift_code: r.shift_code,
-      shift_name: r.shift_name || r.shift_code,
-      is_active: parseBoolean(r.is_active)
-    }));
-  }
-
-  const { error } = await supabaseClient
-    .from(tableName)
-    .upsert(uploadRows, { onConflict });
-
-  if (error) {
-    showUploadMessage(error.message, true);
-    return;
-  }
-
-  if (currentDriver) {
-    await loadMasterData();
-    await refreshAll();
-  }
-
-  showUploadMessage(`${uploadRows.length} ${uploadType} row(s) uploaded successfully.`, false);
-}
-
 window.addEventListener("load", async () => {
   $("historyMonth").value = defaultHistoryMonth();
+  setTodayDateDefault();
 
   const remembered = localStorage.getItem("rememberedDriver");
   const sessionDriver = sessionStorage.getItem("currentDriver");
@@ -908,6 +996,10 @@ window.addEventListener("load", async () => {
   if (currentDriver) {
     await loadMasterData();
   }
+
+  $("captureDateInput").addEventListener("change", updateReadingPlaceholders);
+  $("truckSelect").addEventListener("change", updateReadingPlaceholders);
+  $("trailerSelect").addEventListener("change", updateReadingPlaceholders);
 
   await refreshAll();
 });
