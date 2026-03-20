@@ -327,3 +327,20 @@ details summary::-webkit-details-marker {
     width: 100%;
   }
 }
+.inline-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 0 12px;
+}
+
+.inline-check input[type="checkbox"] {
+  width: auto;
+  min-height: auto;
+  margin: 0;
+}
+
+.inline-check label {
+  margin: 0;
+  font-weight: 700;
+}

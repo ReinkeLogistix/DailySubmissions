@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+  />
+  <title>Admin - Daily Submissions</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="app-header stacked-header">
+      <img src="logo.png" class="logo" alt="Reinke logo" />
+      <h1 class="app-title">Admin - Daily Submissions</h1>
+    </header>
+
+    <main class="phone-frame">
+      <section class="card">
+        <div class="section-title-row">
+          <h2>Admin Login</h2>
+          <button type="button" class="small secondary hidden" id="adminLogoutBtn" onclick="adminLogout()">Log Out</button>
+        </div>
+
+        <div id="adminLoginPanel">
+          <label for="adminDriverCodeInput">Driver Code</label>
+          <input type="text" id="adminDriverCodeInput" placeholder="Enter admin driver code" />
+
+          <label for="adminPinInput">PIN</label>
+          <input type="password" id="adminPinInput" placeholder="Enter PIN" />
+
+          <button type="button" onclick="adminLogin()">Continue</button>
+        </div>
+
+        <div id="adminInfoPanel" class="hidden">
+          <div class="info-chip"><span>Admin User</span><strong id="adminSignedIn">-</strong></div>
+          <div class="info-chip"><span>Status</span><strong>Admin Access Granted</strong></div>
+        </div>
+
+        <p id="adminMessage" class="message"></p>
+      </section>
+
+      <section class="card hidden" id="adminDashboardCard">
+        <h2>Master Data Overview</h2>
+
+        <div class="summary-box">
+          <div class="summary-item">
+            <span>Drivers</span>
+            <strong id="driverCount">0</strong>
+          </div>
+          <div class="summary-item">
+            <span>Trucks</span>
+            <strong id="truckCount">0</strong>
+          </div>
+          <div class="summary-item">
+            <span>Trailers</span>
+            <strong id="trailerCount">0</strong>
+          </div>
+          <div class="summary-item">
+            <span>Shifts</span>
+            <strong id="shiftCount">0</strong>
+          </div>
+        </div>
+      </section>
+
+      <section class="card hidden" id="uploadCard">
+        <h2>Upload Master Data CSV</h2>
+
+        <label for="uploadType">Upload Type</label>
+        <select id="uploadType">
+          <option value="drivers">Drivers</option>
+          <option value="trucks">Trucks</option>
+          <option value="trailers">Trailers</option>
+          <option value="shifts">Shifts</option>
+        </select>
+
+        <label for="csvFileInput">CSV File</label>
+        <input type="file" id="csvFileInput" accept=".csv" />
+
+        <button type="button" onclick="uploadMasterData()">Upload CSV</button>
+        <button type="button" class="secondary" onclick="downloadTemplate()">
+        Download Template
+        </button>
+
+    <div class="upload-help top-gap">
+    <p><strong>Expected CSV format (first row must be headers)</strong></p>
+
+    <p><strong>Common column:</strong> action (add | update | delete)</p>
+
+    <p><strong>Drivers:</strong><br>
+    action, driver_code, driver_name, pin_hash, is_active, default_shift_code</p>
+
+    <p><strong>Trucks:</strong><br>
+    action, truck_code, registration, division, is_active</p>
+
+    <p><strong>Trailers:</strong><br>
+    action, trailer_code, registration, is_active</p>
+
+    <p><strong>Shifts:</strong><br>
+    action, shift_code, shift_name, is_active</p>
+
+    <p><strong>Notes:</strong></p>
+    <ul style="padding-left:18px; margin:6px 0;">
+        <li><strong>action = add</strong> → creates new record (fails if duplicate code exists)</li>
+        <li><strong>action = update</strong> → updates existing record (must already exist)</li>
+        <li><strong>action = delete</strong> → removes record (must exist)</li>
+        <li><strong>Codes must be unique:</strong> driver_code, truck_code, trailer_code, shift_code</li>
+        <li><strong>is_active:</strong> true / false</li>
+    </ul>
+    </div>
+
+        <p id="uploadMessage" class="message"></p>
+      </section>
+
+      <section class="card hidden" id="notesCard">
+        <h2>Notes</h2>
+        <div class="record-group">
+          <div class="record-line">Admin page supports add, update, and delete via the CSV action column.</div>
+          <div class="record-line">Duplicate codes are not allowed. Matching codes are updated only when action = update.</div>
+          <div class="record-line">Use: driver_code, truck_code, trailer_code, or shift_code as the key reference.</div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="admin.js"></script>
+</body>
+</html>
