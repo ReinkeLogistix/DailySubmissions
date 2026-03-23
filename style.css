@@ -112,11 +112,13 @@ select {
   font-family: Arial, Helvetica, sans-serif;
   color: var(--text);
 }
+
 /* 🔽 ADD THIS BELOW */
 #odoInput::placeholder,
 #trailerHoursInput::placeholder {
   font-size: 11px;
 }
+
 input[type="date"] {
   width: 100%;
   min-height: 48px;
@@ -331,6 +333,7 @@ details summary::-webkit-details-marker {
     width: 100%;
   }
 }
+
 .inline-check {
   display: flex;
   align-items: center;

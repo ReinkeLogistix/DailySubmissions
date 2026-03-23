@@ -52,6 +52,25 @@ function fillSelect(selectId, rows, valueField, textField, includeBlank = false,
   });
 }
 
+function fillSimpleSelect(selectId, options, includeBlank = false, blankText = "-- Select --") {
+  const el = $(selectId);
+  el.innerHTML = "";
+
+  if (includeBlank) {
+    const blankOption = document.createElement("option");
+    blankOption.value = "";
+    blankOption.textContent = blankText;
+    el.appendChild(blankOption);
+  }
+
+  options.forEach(value => {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = value;
+    el.appendChild(option);
+  });
+}
+
 function formatDateTime(value) {
   if (!value) return "-";
   return new Date(value).toLocaleString("en-ZA", {
@@ -170,6 +189,7 @@ function switchDriver() {
 
   $("odoInput").placeholder = "Enter odometer reading";
   $("trailerHoursInput").placeholder = "Enter trailer hours if required";
+  $("nightOutSelect").value = "No";
 
   showMessage("Driver cleared on this phone.", false);
 }
@@ -195,11 +215,15 @@ async function loadMasterData() {
 
   fillSelect("truckSelect", trucks || [], "truck_code", "truck_code", true, "-- Select Truck --");
   fillSelect("trailerSelect", trailers || [], "id", "trailer_code", true, "-- No Trailer --");
+  fillSimpleSelect("nightOutSelect", ["Yes", "No"]);
   fillSelect("shiftSelect", shifts || [], "shift_code", "shift_code");
 
   fillSelect("editTrailerSelect", trailers || [], "id", "trailer_code", true, "-- No Trailer --");
+  fillSimpleSelect("editNightOutSelect", ["Yes", "No"]);
   fillSelect("editShiftSelect", shifts || [], "shift_code", "shift_code");
 
+  $("nightOutSelect").value = "No";
+  $("editNightOutSelect").value = "No";
   $("shiftSelect").value = currentDriver?.default_shift_code || "N/A";
   $("editShiftSelect").value = currentDriver?.default_shift_code || "N/A";
 }
@@ -249,7 +273,7 @@ async function getLastTrailerCaptureBefore(trailerId, captureDateTime) {
 async function getLastSessionCapture(sessionId) {
   const { data } = await supabaseClient
     .from("captures")
-    .select("id, trailer_id, shift_code, trailers(trailer_code)")
+    .select("id, trailer_id, shift_code, night_out, trailers(trailer_code)")
     .eq("session_id", sessionId)
     .order("capture_datetime", { ascending: false })
     .limit(1);
@@ -282,8 +306,8 @@ function validateOdoReading(previousCapture, odoReading, kmsStatus) {
     return { valid: false, message: "ODO may not be less than previous truck reading before this date." };
   }
 
-  if (currentOdo > previousOdo + 1000) {
-    return { valid: false, message: "ODO increase cannot exceed 1000 km from previous truck reading." };
+  if (currentOdo > previousOdo + 2000) {
+    return { valid: false, message: "ODO increase cannot exceed 2000 km from previous truck reading." };
   }
 
   if (kmsStatus === "Start KMS") {
@@ -382,10 +406,15 @@ function startCloseTruck() {
     showMessage("Login first.", true);
     return;
   }
+
   closeMode = true;
-  clearCaptureInputs();
   refreshModeUI();
-  showMessage("Close-off mode started. Enter final ODO and trailer hours, then confirm End KMS.", false);
+
+  showMessage(
+    "Close-off mode started. Existing values were kept. Enter or confirm final ODO and trailer hours, then confirm End KMS.",
+    false
+  );
+
   updateReadingPlaceholders();
 }
 
@@ -411,6 +440,7 @@ async function saveCapture() {
   const captureDate = $("captureDateInput").value;
   const truckCode = $("truckSelect").value;
   const trailerId = $("trailerSelect").value ? Number($("trailerSelect").value) : null;
+  const nightOut = $("nightOutSelect").value || "No";
   const shiftCode = $("shiftSelect").value || "N/A";
   const odo = Number($("odoInput").value);
   const trailerHoursValue = $("trailerHoursInput").value;
@@ -508,6 +538,7 @@ async function saveCapture() {
       driver_id: currentDriver.driver_id,
       truck_id: truckRow.id,
       trailer_id: trailerId,
+      night_out: nightOut,
       shift_code: shiftCode,
       odo_reading: odo,
       trailer_hours: trailerHours,
@@ -538,6 +569,7 @@ async function confirmCloseTruck() {
 
   const captureDate = $("captureDateInput").value;
   const trailerId = $("trailerSelect").value ? Number($("trailerSelect").value) : null;
+  const nightOut = $("nightOutSelect").value || "No";
   const shiftCode = $("shiftSelect").value || "N/A";
   const odo = Number($("odoInput").value);
   const trailerHoursValue = $("trailerHoursInput").value;
@@ -583,6 +615,7 @@ async function confirmCloseTruck() {
       driver_id: currentDriver.driver_id,
       truck_id: activeSession.truck_id,
       trailer_id: trailerId,
+      night_out: nightOut,
       shift_code: shiftCode,
       odo_reading: odo,
       trailer_hours: trailerHours,
@@ -609,10 +642,26 @@ async function confirmCloseTruck() {
     return;
   }
 
-  closeMode = false;
-  clearCaptureInputs();
-  await refreshAll();
-  showMessage(`Truck ${activeSession.trucks.truck_code} closed. End KMS saved. KMS: ${odoValidation.kms}`, false);
+closeMode = false;
+
+// Immediately reset the form visually
+$("truckSelect").disabled = false;
+$("truckSelect").value = "";
+$("trailerSelect").value = "";
+$("nightOutSelect").value = "No";
+$("shiftSelect").value = currentDriver?.default_shift_code || "N/A";
+
+clearCaptureInputs();
+refreshModeUI();
+
+// Reload data from Supabase
+await refreshAll();
+
+// Force-clear truck again after refresh
+$("truckSelect").disabled = false;
+$("truckSelect").value = "";
+
+showMessage(`Truck ${activeSession.trucks.truck_code} closed. End KMS saved. KMS: ${odoValidation.kms}`, false);
 }
 
 function groupRowsBySession(rows) {
@@ -708,6 +757,7 @@ function renderActiveMonthRecords(groups) {
           <div class="record-line">
             ${formatDateTime(row.capture_datetime)} |
             ${row.kms_status} |
+            Night Out ${row.night_out || "No"} |
             Shift ${row.shift_code} |
             ODO ${row.odo_reading} |
             Hours ${row.trailer_hours ?? ""} |
@@ -738,7 +788,7 @@ function populateEditRecordDropdown(rows) {
     .forEach(row => {
       const option = document.createElement("option");
       option.value = row.id;
-      option.textContent = `${formatDateTime(row.capture_datetime)} | ${row.trucks?.truck_code || "-"} | ${row.kms_status} | Shift ${row.shift_code} | ODO ${row.odo_reading}`;
+      option.textContent = `${formatDateTime(row.capture_datetime)} | ${row.trucks?.truck_code || "-"} | ${row.kms_status} | Night Out ${row.night_out || "No"} | Shift ${row.shift_code} | ODO ${row.odo_reading}`;
       select.appendChild(option);
     });
 }
@@ -757,6 +807,7 @@ function loadSelectedRecordForEdit() {
   $("editTruckLabel").textContent = row.trucks?.truck_code || "-";
   $("editStatusLabel").textContent = row.kms_status || "-";
   $("editTrailerSelect").value = row.trailer_id ? String(row.trailer_id) : "";
+  $("editNightOutSelect").value = row.night_out || "No";
   $("editShiftSelect").value = row.shift_code || "N/A";
   $("editOdoInput").value = row.odo_reading ?? "";
   $("editTrailerHoursInput").value = row.trailer_hours ?? "";
@@ -768,6 +819,7 @@ function cancelRecordEdit() {
   $("editPanel").classList.add("hidden");
   $("editTruckLabel").textContent = "-";
   $("editStatusLabel").textContent = "-";
+  $("editNightOutSelect").value = "No";
   $("editOdoInput").value = "";
   $("editTrailerHoursInput").value = "";
 }
@@ -787,6 +839,7 @@ async function saveRecordEdit() {
   }
 
   const newTrailerId = $("editTrailerSelect").value ? Number($("editTrailerSelect").value) : null;
+  const newNightOut = $("editNightOutSelect").value || "No";
   const newShiftCode = $("editShiftSelect").value || "N/A";
   const newOdo = Number($("editOdoInput").value);
   const newTrailerHoursValue = $("editTrailerHoursInput").value;
@@ -827,6 +880,7 @@ async function saveRecordEdit() {
     .from("captures")
     .update({
       trailer_id: newTrailerId,
+      night_out: newNightOut,
       shift_code: newShiftCode,
       odo_reading: newOdo,
       trailer_hours: newTrailerHours,
@@ -858,6 +912,7 @@ async function loadCurrentMonthSummary() {
       driver_id,
       truck_id,
       trailer_id,
+      night_out,
       shift_code,
       odo_reading,
       trailer_hours,
@@ -912,6 +967,7 @@ async function loadHistoryMonth() {
       driver_id,
       truck_id,
       trailer_id,
+      night_out,
       shift_code,
       odo_reading,
       trailer_hours,
@@ -964,11 +1020,16 @@ async function refreshDriverHeader() {
     const lastSessionCapture = await getLastSessionCapture(activeSession.id);
     if (lastSessionCapture) {
       $("trailerSelect").value = lastSessionCapture.trailer_id ? String(lastSessionCapture.trailer_id) : "";
+      $("nightOutSelect").value = lastSessionCapture.night_out || "No";
       $("shiftSelect").value = lastSessionCapture.shift_code || currentDriver.default_shift_code || "N/A";
     }
-  } else {
-    $("truckSelect").disabled = false;
-  }
+} else {
+  $("truckSelect").disabled = false;
+  $("truckSelect").value = "";
+  $("trailerSelect").value = "";
+  $("nightOutSelect").value = "No";
+  $("shiftSelect").value = currentDriver?.default_shift_code || "N/A";
+}
 
   refreshModeUI();
   await updateReadingPlaceholders();
